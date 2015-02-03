@@ -1,0 +1,45 @@
+;; gorilla-repl.fileformat = 1
+
+;; **
+;;; # Gorilla REPL
+;;; 
+;;; Welcome to gorilla :-)
+;;; 
+;;; Shift + enter evaluates code. Hit ctrl+g twice in quick succession or click the menu icon (upper-right corner) for more commands ...
+;;; 
+;;; It's a good habit to run each worksheet in its own namespace: feel free to use the declaration we've provided below if you'd like.
+;; **
+
+;; @@
+(ns frightened-winter
+  (:require [gorilla-plot.core :as plot]
+            [instaparse.core :as insta]
+            [net.cgrand.enlive-html :as html])
+  (:import (java.net.URL) 
+           (java.lang.String)))
+;; @@
+;; =>
+;;; {"type":"html","content":"<span class='clj-nil'>nil</span>","value":"nil"}
+;; <=
+
+;; @@
+(def p (insta/parser
+         "S = Token+
+          <Token> = Header / Body / Newline
+          Header = &HeaderKey Whitespace* HeaderVal
+          HeaderKey = Artist | Album | Title | TypedBy | #'[\\t ]'
+          Artist = #'([aA]rtist|[gG]roup):?'
+          Album = #'[aA]lbum:?'
+          Title = #'([tT]itle|[sS]ong):?'
+          TypedBy = #'[tT]yped\\s+[bB]y:?'
+          HeaderVal = <Word+>
+          Body = BodyToken+
+          BodyToken = Newline | Word | Punc
+          Newline = '\\n'
+          Word = #'[^\\s]+'
+          Punc = #'[\\.\\,\\;\\\"\\!\\?]'
+          Whitespace = #'[\\s&&[^\\n]]'"))
+;; @@
+;; =>
+;;; {"type":"html","content":"<span class='clj-var'>#&#x27;frightened-winter/p</span>","value":"#'frightened-winter/p"}
+;; <=
