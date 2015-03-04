@@ -1,61 +1,27 @@
 (ns lyrics.parsing
-  (:require [instaparse.core :as insta]
-            [clojure.string :refer [split-lines triml]]))
+  (:require [clojure.string :refer [split split-lines lower-case]]))
 
-(def annotation-markers "<\\[\\*")
-(def header-parser (insta/parser 
-                        "<HeaderLine> = Header Value
-                         <Header> = Album | Artist | Song | TypedBy
-                         Album = <#'^[Aa]lbum:?\\s+'>
-                         Artist = <#'^[Aa]rtist:?\\s+'>
-                         Song = <#'^([Ss]ong|[Tt]itle):?\\s+'>
-                         TypedBy = <#'^[Tt]yped\\s+[Bb]y:?\\s+'>
-                         <Value> = #'[^\\n]+$'"))
-(def body-parser (insta/parser
-                        (str
-                          "<BodyLine> = Lyric | Annotation
-                           <Lyric> = (Word | Punc)+
-                           Word = #'[a-zA-Z0-9\\.\\'\\-]+'
-                           Punc = #'[,\\\"\\'\\.\\?\\!]+?'
-                           Annotation = #'[" annotation-markers "][^\\n]+'")
-                   :auto-whitespace :standard))
-                         
-(defn process-word [song line-idx wd-idx word]
-  (merge (apply hash-map word)
-         {:song song
-          :line-idx line-idx
-          :wd-idx wd-idx}))
+(def load-pat #"\n?\"([^\"]*)\" is track #(\d+) on the album (.+?)\. It was written by (.+?)\.\t?")
 
-(def header-hierarchy (-> (make-hierarchy)
-                          (derive :Album ::Header)
-                          (derive :Artist ::Header)
-                          (derive :Song ::Header)
-                          (derive :TypedBy ::Header)
-                          ;; annotation isn't really a "Header,"
-                          ;; but it gets treated like one
-                          (derive :Annotation ::Header)
-                          (derive :Word ::Lyric)
-                          (derive :Punc ::Lyric)))
+(defn parse-load [load-line]
+  (if-let [parsed-load (re-matches load-pat load-line)]
+    ;; re-matches returns vec, 0th elem of which is full match
+    (zipmap [:title :album :track-number :written-by] (next parsed-load))))
 
-(defmulti process-line ffirst)
-(defmethod process-line ::Header [line]
-  (apply hash-map (flatten line)))
-(defmethod process-line ::Lyric [line]
-  (map (partial apply hash-map) line))
+(def header-line-pat #"(Album|Artist|Title): .*\n")
 
-(defn parse-line [line parser & [m]]
-  (if (:parses m)
-    (insta/parses parser (triml line))
-    (insta/parse parser (triml line))))
+(defn parse-line [^String line]
+  (if (nil? (re-find header-line-pat line))
+            (into {} 
+                  (keep-indexed (fn [idx w] [idx w])
+                                (map lower-case (split line #"\s"))))))
 
-(comment
-(defn process-lines [lines]
-  (loop [line (first lines)
-         tail (next lines)
-         headers {}
-         words []]
-    (if (nil? line) words
-      (
-      (recur (first tail)
-             (next tail))))))
-  )
+(defn parse-lyrics [^String lyrics]
+  (into {} (keep-indexed (fn [idx l] (if-let [parsed (parse-line l)]
+                                       [idx parsed]))
+                         (split-lines lyrics))))
+
+(defn parse-blob [blob]
+  (merge blob
+         (assoc (parse-load (:load blob))
+                :lyrics (parse-lyrics (:lyrics blob)))))
