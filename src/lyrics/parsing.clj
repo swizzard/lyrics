@@ -6,7 +6,7 @@
 (defn parse-load [load-line]
   (if-let [parsed-load (re-matches load-pat load-line)]
     ;; re-matches returns vec, 0th elem of which is full match
-    (zipmap [:title :album :track-number :written-by] (next parsed-load))))
+    (zipmap [:title :track-number :album :written-by] (map str (next parsed-load)))))
 
 (def header-line-pat #"(Album|Artist|Title): .*\n")
 
@@ -22,6 +22,6 @@
                          (split-lines lyrics))))
 
 (defn parse-blob [blob]
-  (merge blob
-         (assoc (parse-load (:load blob))
-                :lyrics (parse-lyrics (:lyrics blob)))))
+  (-> blob
+      (merge (parse-load (:load blob)))
+      (assoc :parsed-lyrics (parse-lyrics (:lyrics blob)))))
