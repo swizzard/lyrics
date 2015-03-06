@@ -103,11 +103,13 @@
     {:url-song (strify (first splt))
      :url-artist (strify (next (second splt)))}))
 
+(defn filter-redirected [url]
+  (let [resp (client/get url)]
+  (if (= 1 (-> resp :trace-redirects distinct count))
+    (enlive/html-snippet (:body resp)))))
+
 (defn extract-lyrics [lyrics-url]
-  (let [lp (-> lyrics-url
-               client/get
-               :body
-               enlive/html-snippet)]
+  (let [lp (filter-redirected lyrics-url)]
     (do (println "lyrics " lyrics-url)
        (merge (parse-lyrics-url lyrics-url)
          {:url lyrics-url
