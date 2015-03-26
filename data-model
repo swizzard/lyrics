@@ -1,0 +1,4 @@
+START-[:NEXT_WORD]->(word1)-[:NEXT_WORD]->(word2)...-[:NEXT_WORD]->END
+(word1)-[:IN_SONG {:position "line-no:idx_in_line"}]->(song1)
+(song1)-[:IN_ALBUM {:song-number 1}]->(album1)
+(album1)-[:BY_ARTIST]->(artist1)
