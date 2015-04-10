@@ -3,7 +3,8 @@
             [lyrics.parsing :as parsing]
             [lyrics.mongo :refer [insert]]))
 
-(defn lyrics-to-mongo 
+(defn lyrics-to-mongo
+  "Retrieve lyrics, parse them, and upload them to MongoDB"
   ([artists]
     (doseq [l (scraping/get-all-lyrics artists)]
       (prn (parsing/parse-blob l))
@@ -12,5 +13,7 @@
   ([] (lyrics-to-mongo (scraping/get-all-artists))))
 
 
-(defn -main [] (lyrics-to-mongo))
-
+(defn -main
+  "Main function"
+  []
+  (lyrics-to-mongo))

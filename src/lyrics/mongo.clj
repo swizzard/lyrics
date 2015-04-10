@@ -1,11 +1,20 @@
 (ns lyrics.mongo
-  (:require (monger [core :as mg] 
+  (:require (monger [core :as mg]
                     [collection :as mc]
                     [operators :as mo]))
   (:import [org.bson.types ObjectId]))
 
+(def ^:private db
+  "The database connection"
+  (mg/get-db (mg/connect) "lyrics"))
 
-(def ^:private db (-> (mg/connect) (mg/get-db "lyrics")))
-(def ^:private coll "lyrics")
+(def ^:private coll
+  "The MongoDB collection"
+  "lyrics")
 
-(defn insert [m] (mc/insert db coll m))
+(defn insert
+  "Insert a map into the database
+   :param m: the map to insert
+   :type m: map
+   :returns: nil (side-effecting)"
+  [m] (mc/insert db coll m))
