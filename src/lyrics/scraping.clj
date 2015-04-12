@@ -7,6 +7,16 @@
     (:import (java.lang.String)))
 
 
+(defn- concat!
+  "Concat but for transients
+   :param tc: the transient collection to concatenate to
+   :type tc: transient sequence
+   :param x: the sequence to concatenate
+   :type x: sequence
+   :returns: transient sequence"
+  [tc x]
+  (apply (partial conj! tc) x))
+
 (defn from-edn
   "Read an edn file
    :param edn-file: path to edn file to read
@@ -141,7 +151,7 @@
     (println "page " first-page)
     (loop [idx 1
            page (assemble-link letter idx)
-           artists nil]
+           artists (transient [])]
         (println "page " page)
         (let [resp (client/get page)]
           (if (= first-page (last (:trace-redirects
@@ -150,7 +160,7 @@
            (recur
                (inc idx)
                (assemble-link letter (inc idx))
-               (concat artists
+               (concat! artists
                           (map fix-artist-link
                                (ga resp)))))))))
 
@@ -183,22 +193,22 @@
    :type start-page: string
    :returns: seq of strings"
   [start-page]
-  (let [gl (fn [resp] (-> resp
-                          :body
-                          enlive/html-snippet
-                          lyrics-from-page))]
+  (letfn [(gl [resp] (-> resp
+                         :body
+                         enlive/html-snippet
+                         lyrics-from-page))]
     (println "page " start-page)
     (loop [idx 2
-           lyrics (gl start-page)]
+           lyrics (transient [(gl start-page)])]
       (let [next-url (iterate-link start-page idx)
             u (client/get next-url)]
         (if (> (count (distinct
                         (:trace-redirects u))) 1)
-          lyrics
+          (persistent! lyrics)
           (do
             (println "page " next-url)
             (recur (inc idx)
-                   (concat lyrics (gl u)))))))))
+                   (concat! lyrics (gl u)))))))))
 
 (defn strify
   "Join a sequence of strings with spaces
