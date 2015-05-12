@@ -7,6 +7,7 @@
                  [instaparse "1.3.5"]
                  [enlive "1.1.5"]
                  [clj-http "1.0.1"]
-                 [com.novemberain/monger "2.0.0"]]
+                 [com.novemberain/monger "2.0.0"]
+                 [clojurewerkz/neocons "3.0.0"]]
   :jvm-opts ["-Xmx4g" "-server"]
   :main lyrics.core)
