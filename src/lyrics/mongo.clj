@@ -4,11 +4,11 @@
                     [operators :as mo]))
   (:import [org.bson.types ObjectId]))
 
-(def ^:private db
+(def db
   "The database connection"
   (mg/get-db (mg/connect) "lyrics"))
 
-(def ^:private coll
+(def coll
   "The MongoDB collection"
   "lyrics")
 
