@@ -8,6 +8,8 @@
                  [enlive "1.1.5"]
                  [clj-http "1.0.1"]
                  [com.novemberain/monger "2.0.0"]
-                 [clojurewerkz/neocons "3.0.0"]]
+                 [clojurewerkz/neocons "3.1.0-beta3"]
+                 [environ "1.0.0"]]
+  :plugins [[lein-environ "1.0.0"]]
   :jvm-opts ["-Xmx4g" "-server"]
   :main lyrics.core)
