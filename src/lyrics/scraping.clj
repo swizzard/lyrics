@@ -15,7 +15,7 @@
    :type x: sequence
    :returns: transient sequence"
   [tc x]
-  (apply (partial conj! tc) x))
+  (reduce conj! tc (filter seq x)))
 
 (defn from-edn
   "Read an edn file
@@ -199,7 +199,9 @@
                          lyrics-from-page))]
     (println "page " start-page)
     (loop [idx 2
-           lyrics (transient [(gl start-page)])]
+           lyrics (transient (if-let [start (gl start-page)]
+                                [start]
+                                []))]
       (let [next-url (iterate-link start-page idx)
             u (client/get next-url)]
         (if (> (count (distinct
@@ -238,9 +240,9 @@
    :type url: string
    :returns: Enlive snippet"
   [url]
-  (let [resp (client/get url)]
-  (if (= 1 (-> resp :trace-redirects distinct count))
-    (enlive/html-snippet (:body resp)))))
+  (if-let [resp (and (seq url) (client/get url))]
+    (if (= 1 (-> resp :trace-redirects distinct count))
+      (enlive/html-snippet (:body resp)))))
 
 (defn extract-lyrics
   "Extract the lyrics from a resource represented by a lyrics url
@@ -248,6 +250,7 @@
    :type lyrics-url: string
    :returns: map"
   [lyrics-url]
+  (do (print lyrics-url)
   (let [lp (filter-redirected lyrics-url)]
     (println "lyrics " lyrics-url)
     (merge (parse-lyrics-url lyrics-url)
@@ -261,7 +264,7 @@
                                                     (enlive/select
                                                     [:div#lyrics-body-text])
                                                     first
-                                                    :content)))})))
+                                                    :content)))}))))
 
 (defn get-all-lyrics
   "Extract all lyrics from the provided artists
