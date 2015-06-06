@@ -15,7 +15,7 @@
    :type x: sequence
    :returns: transient sequence"
   [tc x]
-  (reduce conj! tc (filter seq x)))
+  (reduce conj! tc (remove empty? x)))
 
 (defn from-edn
   "Read an edn file
