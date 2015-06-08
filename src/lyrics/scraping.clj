@@ -148,11 +148,9 @@
                (distinct (get-artists (-> resp
                                           :body
                                           enlive/html-snippet))))]
-    (println "page " first-page)
     (loop [idx 1
            page (assemble-link letter idx)
            artists (transient [])]
-        (println "page " page)
         (let [resp (client/get page)]
           (if (= first-page (last (:trace-redirects
                                    resp)))
@@ -197,7 +195,6 @@
                          :body
                          enlive/html-snippet
                          lyrics-from-page))]
-    (println "page " start-page)
     (loop [idx 2
            lyrics (transient (if-let [start (gl start-page)]
                                 [start]
@@ -208,7 +205,6 @@
                         (:trace-redirects u))) 1)
           (persistent! lyrics)
           (do
-            (println "page " next-url)
             (recur (inc idx)
                    (concat! lyrics (gl u)))))))))
 
@@ -252,7 +248,6 @@
   [lyrics-url]
   (do (print lyrics-url)
   (let [lp (filter-redirected lyrics-url)]
-    (println "lyrics " lyrics-url)
     (merge (parse-lyrics-url lyrics-url)
            {:url lyrics-url
             :load (-> lp

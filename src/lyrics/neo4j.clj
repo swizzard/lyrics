@@ -1,6 +1,7 @@
 (ns lyrics.neo4j
   (:require (clojurewerkz.neocons [rest :as nr])
             (clojurewerkz.neocons.rest [nodes :as nn]
+                                       [labels :as nl]
                                        [relationships :as nrl]
                                        [records :as recs]
                                        [cypher :as cy])
@@ -11,17 +12,6 @@
   "Get a Neo4j DB connection"
   []
   (nr/connect (env :neo4j-url)))
-
-(def conn
-  "Our connection"
-  (get-conn))
-
-(defn window-tokens
-  "Pad a seq of tokens and convert it to a seq of 2-token 'windows'"
-  [tokens]
-  (partition 2 1 (keep-indexed (fn [x y] [x y]) (concat [:start]
-                                                        tokens
-                                                        [:end]))))
 
 (def uploaded-artists
   "A ref holding a local cache of uploaded artists"
@@ -41,6 +31,7 @@
   [conn song-blob]
   (let [artist (:url-artist song-blob)
         artist-node (nn/create conn {:artist artist})]
+    (nl/add conn artist-node "Artist")
     (dosync (alter uploaded-artists assoc artist (:id artist-node))
             artist-node)))
 
@@ -52,50 +43,35 @@
         album-node (nn/create conn {:album album})
         artist-node (or (nn/get conn (get @uploaded-artists artist))
                         (create-artist conn song-blob))]
+    (nl/add conn album-node "Album")
+    (nrl/create conn album-node artist-node :by_artist)
     (dosync
-      (nrl/create conn album-node artist-node :by_artist)
       (alter uploaded-albums assoc (get-album-cache-name artist album)
-                                   (:id album-node))
-      album-node)))
+                                   (:id album-node)))
+      album-node))
 
 (defn create-song
   "Create a Neo4j node representing a song"
-  [conn album-node song-blob]
+  [conn artist-node album-node song-blob]
   (let [song-node (nn/create conn (select-keys song-blob [:url-song :written-by
                                                           :title :track-number
                                                           :url]))]
-    (nrl/create conn album-node song-node :in_album)
+    (nl/add conn song-node "Song")
+    (nrl/create conn song-node artist-node :by_artist)
+    (nrl/create conn song-node album-node :in_album)
     song-node))
 
-(defn upload-bigram
-  "Create Neo4j nodes representing words and connect them to the graph"
-  [conn song bigram]
-  (let [query-str
-        "MATCH (artist {artist: {artist}})
-          <-[:by_artist]-(album {album: {album}})
-          <-[:on_album]-(song: {title: {song_title} track_no: {track_no}})
-          <-[:in_song]-(token1 {token: {token} idx: {idx}})
-         RETURN token1"]
-    (match [(first bigram) (second bigram)]
-          [[0 :start] [1 token]] (let [token-node (nn/create conn {:token token
-                                                                    :idx 1})]
-                                    (nrl/create conn token-node song :in_song))
-          [[_ token]  [_ :end]] nil
-          [[idx1 token1] [idx2 token2]]
-              (let [token1-node (recs/instantiate-record-from
-                                  (-> (cy/query conn
-                                                query-str
-                                                {:artist (:url-artist song)
-                                                 :album (:album song)
-                                                 :song_title (:title song)
-                                                 :track_no (:track-number song)
-                                                 :token token1
-                                                 :idx idx1})
-                                      :data
-                                      ffirst))
-                    token2-node (nn/create conn {:token token2 :idx idx2})]
-                (nrl/create conn token1-node token2-node :followed-by)
-                (nrl/create conn token2-node song :in-song)))))
+(defn create-token
+  [conn song prev idx token]
+  (if (seq token)
+    (let [token-node (nn/create conn {:token token :idx idx})
+          token-label (if (= "\n" token) ["Token" "Newline"]
+                                        "Token")]
+      (nl/add conn token-node token-label)
+      (nrl/create conn token-node song :in_song)
+      (if prev
+        (nrl/create conn prev token-node :next_word))
+      token-node)))
 
 (defn parse-song
   "Parse a song-blob and upload its components to Neo4j"
@@ -104,7 +80,14 @@
                         (create-artist conn song-blob))
         album-node (or (get @uploaded-albums (:album song-blob))
                        (create-album conn song-blob))
-        song (create-song conn album-node song-blob)]
-    (nrl/create conn song album-node :in-album)
-    (map (partial upload-bigram conn song)
-          (window-tokens (:tokenized-lyrics song-blob)))))
+        song (create-song conn artist-node album-node song-blob)
+        tokens (:tokenized-lyrics song-blob)]
+    (loop [prev nil
+           idx 0
+           token (first tokens)
+           tail (rest tokens)]
+      (if (some? token)
+          (recur (create-token conn song prev idx token)
+                  (inc idx)
+                  (first tail)
+                  (rest tail))))))

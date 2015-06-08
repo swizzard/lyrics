@@ -33,6 +33,7 @@
    :type blob: map
    :returns: map"
   [blob]
-  (-> blob
-      (merge (parse-load (:load blob)))
-      (assoc :tokenized-lyrics (tokenize-lyrics (:lyrics blob)))))
+  (if (seq (:url blob))
+    (-> blob
+        (merge (parse-load (:load blob)))
+        (assoc :tokenized-lyrics (tokenize-lyrics (:lyrics blob))))))
