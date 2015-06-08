@@ -204,9 +204,8 @@
         (if (> (count (distinct
                         (:trace-redirects u))) 1)
           (persistent! lyrics)
-          (do
-            (recur (inc idx)
-                   (concat! lyrics (gl u)))))))))
+          (recur (inc idx)
+                  (concat! lyrics (gl u))))))))
 
 (defn strify
   "Join a sequence of strings with spaces

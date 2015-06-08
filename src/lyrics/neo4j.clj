@@ -62,6 +62,7 @@
     song-node))
 
 (defn create-token
+  "Create a Neo4J node representing a token"
   [conn song prev idx token]
   (if (seq token)
     (let [token-node (nn/create conn {:token token :idx idx})
