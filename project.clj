@@ -12,5 +12,5 @@
                  [environ "1.0.0"]
                  [org.clojure/core.match "0.3.0-alpha4"]]
   :plugins [[lein-environ "1.0.0"]]
-  :jvm-opts ["-Xmx4g" "-server"]
+  :jvm-opts ["-Xmx16g" "-server"]
   :main lyrics.core)
