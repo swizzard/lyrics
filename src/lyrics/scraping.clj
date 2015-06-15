@@ -2,20 +2,9 @@
     (:require [net.cgrand.enlive-html :as enlive]
               [clj-http.client :as client]
               [clojure.string :as string]
-              [lyrics.mongo :refer [insert]]
               [clojure.tools.reader.edn :as edn])
     (:import (java.lang.String)))
 
-
-(defn- concat!
-  "Concat but for transients
-   :param tc: the transient collection to concatenate to
-   :type tc: transient sequence
-   :param x: the sequence to concatenate
-   :type x: sequence
-   :returns: transient sequence"
-  [tc x]
-  (reduce conj! tc (remove empty? x)))
 
 (defn from-edn
   "Read an edn file
@@ -35,10 +24,12 @@
    :param url-string: the url to access
    :type url-string: string (url)
    :returns: enlive snippet or nil"
-  [url-string]
+  ([url-string]
     (try
       (-> (client/get url-string) :body enlive/html-snippet)
       (catch Exception e nil)))
+  ([]
+   (map get-resource)))
 
 (defn- valid-link?
   "Validate a url by ensuring there are no errant '//'s in it
@@ -99,8 +90,34 @@
    :param res: the resource to extract from
    :type res: Ring response map
    :returns: seq of strings"
-  [res]
-  (map get-link (enlive/select res [:td :a])))
+  [resp]
+  (distinct (map get-link (enlive/select resp [:td :a]))))
+
+(defn take-until-nils
+  [max-nils]
+    (fn [xf]
+      (let [nils-count (atom 0)]
+        (fn
+          ([] (xf))
+          ([res] (xf res))
+          ([res input]
+           (if (nil? input)
+             (if (compare-and-set! nils-count (dec max-nils) 0)
+               (reduced res)
+               (swap! nils-count inc))
+             (xf res input)))))))
+
+(defn filter-redirected
+  "Takes a url string and returns it if it doesn't redirect
+   :param url: the address of the resource to retrieve
+   :type url: String
+   :returns: String or nil"
+  ([url]
+    (if-let [resp (and (seq url) (client/get url))]
+      (if (= 1 (-> resp :trace-redirects distinct count))
+        url)))
+  ([]
+   (comp (take-while some?) (map filter-redirected))))
 
 (defn assemble-link
   "Assemble a link from a letter and an optional index
@@ -123,13 +140,20 @@
    :param idx: the index to attach to the link
    :type idx: integer
    :returns: string"
-  [starting-link idx]
-  {:pre [(integer? idx)]}
-  (if (zero? idx) starting-link
-                (string/replace starting-link #"\.html$"
-                                              (str "-" idx ".html"))))
+  ([starting-link idx]
+    {:pre [(integer? idx)]}
+    (if (zero? idx) starting-link
+                  (string/replace starting-link #"\.html$"
+                                                (str "-" idx ".html"))))
+  ([starting-link]
+     (sequence (comp (map (partial iterate-link starting-link))
+                     (filter-redirected)
+                     (take-until-nils 2))
+               (range)))
+  ([]
+   (mapcat iterate-link)))
 
-(defn- fix-artist-link
+(defn fix-artist-link
   "Fix an artist link to point to the albums list
    :param artist-link: the link to modify
    :type artist-link: String
@@ -141,71 +165,33 @@
   "Retrieve all the artists starting with the given letter
    :param letter: the letter to retrieve artists beginning with
    :type letter: string
-   :returns: seq of maps"
-  [letter]
-  (let [first-page (assemble-link letter)
-        ga (fn [resp]
-               (distinct (get-artists (-> resp
-                                          :body
-                                          enlive/html-snippet))))]
-    (loop [idx 1
-           page (assemble-link letter idx)
-           artists (transient [])]
-        (let [resp (client/get page)]
-          (if (= first-page (last (:trace-redirects
-                                   resp)))
-           artists
-           (recur
-               (inc idx)
-               (assemble-link letter (inc idx))
-               (concat! artists
-                          (map fix-artist-link
-                               (ga resp)))))))))
+   :returns: seq of strings"
+  ([letter]
+    (sequence (comp (map (partial assemble-link letter))
+                    (map filter-redirected)
+                    (take-while some?)
+                    (map get-resource)
+                    (mapcat get-artists)
+                    (map fix-artist-link))
+              (range 1000)))
+  ([]
+   (mapcat collect-artists)))
 
 (defn get-all-artists
   "Get ALL the artists! NB: function because it takes a long time
    :returns: seq of maps"
   []
-  (mapcat collect-artists ["1" "a" "b" "c" "d" "e" "f"
-                           "g" "h" "i" "j" "k" "l" "m"
-                           "n" "o" "p" "q" "r" "s" "t"
-                           "u" "v" "w" "x" "y" "z"]))
+  (sequence (mapcat collect-artists)
+            ["1" "a" "b" "c" "d" "e" "f"
+             "g" "h" "i" "j" "k" "l" "m"
+             "n" "o" "p" "q" "r" "s" "t"
+             "u" "v" "w" "x" "y" "z"]))
 
 (defn get-some-artists
   "Get some artists. NB: mostly for debug purposes
    :returns: seq of maps"
   []
   (collect-artists "1"))
-
-(defn lyrics-from-page
-  "Extract links to lyrics from a resource
-   :param res: the resource to extract from
-   :type res: Enlive resource
-   :returns: seq of strings"
-  [res]
-  (get-links-from-res res [:ul.grid_3 :li :a]))
-
-(defn get-lyrics
-  "Extract all lyrics, starting from a given page
-   :param start-page: address of the starting page
-   :type start-page: string
-   :returns: seq of strings"
-  [start-page]
-  (letfn [(gl [resp] (-> resp
-                         :body
-                         enlive/html-snippet
-                         lyrics-from-page))]
-    (loop [idx 2
-           lyrics (transient (if-let [start (gl start-page)]
-                                [start]
-                                []))]
-      (let [next-url (iterate-link start-page idx)
-            u (client/get next-url)]
-        (if (> (count (distinct
-                        (:trace-redirects u))) 1)
-          (persistent! lyrics)
-          (recur (inc idx)
-                  (concat! lyrics (gl u))))))))
 
 (defn strify
   "Join a sequence of strings with spaces
@@ -219,51 +205,60 @@
   "Parse a lyrics url
    :param lyrics-url: the url to parse
    :returns: map"
-  [^String lyrics-url]
-  (let [splt (split-with #(not= % "lyrics")
-                         (-> lyrics-url
-                             (string/replace ".html" "")
-                             (string/split #"/")
-                             last
-                             (string/split #"-")))]
-    {:url-song (strify (first splt))
-     :url-artist (strify (next (second splt)))}))
-
-(defn filter-redirected
-  "Turn a url into an Enlive snippet if the url doesn't redirect
-   :param url: the address of the resource to retrieve
-   :type url: string
-   :returns: Enlive snippet"
-  [url]
-  (if-let [resp (and (seq url) (client/get url))]
-    (if (= 1 (-> resp :trace-redirects distinct count))
-      (enlive/html-snippet (:body resp)))))
+  ([^String lyrics-url]
+    (let [splt (split-with #(not= % "lyrics")
+                          (-> lyrics-url
+                              (string/replace ".html" "")
+                              (string/split #"/")
+                              last
+                              (string/split #"-")))]
+      {:url lyrics-url
+      :url-song (strify (first splt))
+      :url-artist (strify (next (second splt)))}))
+  ([]
+   (map parse-lyrics-url)))
 
 (defn extract-lyrics
   "Extract the lyrics from a resource represented by a lyrics url
    :param lyrics-url: the url of the resource to extract lyrics from
    :type lyrics-url: string
    :returns: map"
-  [lyrics-url]
-  (do (print lyrics-url)
-  (let [lp (filter-redirected lyrics-url)]
-    (merge (parse-lyrics-url lyrics-url)
-           {:url lyrics-url
-            :load (-> lp
-                      (enlive/select [:div.load])
-                      first
-                      :content
-                      first)
-            :lyrics (apply str (map enlive/text (-> lp
-                                                    (enlive/select
-                                                    [:div#lyrics-body-text])
-                                                    first
-                                                    :content)))}))))
+  ([lyrics-map]
+    (let [lp (get-resource (:url lyrics-map))]
+      (merge lyrics-map
+            {:load (-> lp
+                        (enlive/select [:div.load])
+                        first
+                        :content
+                        first)
+              :featuring (mapv enlive/text (-> lp
+                                              (enlive/select [:span.fartist])))
+              :lyrics (apply str (map enlive/text (-> lp
+                                                      (enlive/select
+                                                      [:div#lyrics-body-text])
+                                                      first
+                                                      :content)))})))
+  ([]
+   (map extract-lyrics)))
+
+(def get-lyrics
+  (comp (collect-artists)
+        (iterate-link)
+        (get-resource)
+        (mapcat #(get-links-from-res % [:ul.grid_3 :li :a]))
+        (parse-lyrics-url)
+        (extract-lyrics)
+        ))
 
 (defn get-all-lyrics
   "Extract all lyrics from the provided artists
    :param artists: seq of artist links to process
    :type artists: seq of strings
    :returns: seq of maps"
-  [artists]
-  (map extract-lyrics (mapcat get-lyrics artists)))
+  ([letters]
+    (sequence get-lyrics letters))
+  ([]
+   (get-all-lyrics ["1" "a" "b" "c" "d" "e" "f"
+                    "g" "h" "i" "j" "k" "l" "m"
+                    "n" "o" "p" "q" "r" "s" "t"
+                    "u" "v" "w" "x" "y" "z"])))
