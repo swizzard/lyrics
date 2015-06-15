@@ -28,27 +28,33 @@
 
 (defn create-artist
   "Create a Neo4j node representing an artist"
-  [conn song-blob]
-  (let [artist (:url-artist song-blob)
-        artist-node (nn/create conn {:artist artist})]
+  [conn {artist :url-artist :as song-blob}]
+  (let [artist-node (nn/create conn {:artist artist})]
     (nl/add conn artist-node "Artist")
-    (dosync (alter uploaded-artists assoc artist (:id artist-node))
+    (dosync (alter uploaded-artists assoc artist artist-node)
             artist-node)))
+
+(defn get-artist-node [conn {:keys [url-artist] :as song}]
+  (or (get @uploaded-artists url-artist)
+      (create-artist conn song)))
 
 (defn create-album
   "Create a Neo4j node representing an album"
-  [conn song-blob]
-  (let [album (:album song-blob)
-        artist (:url-artist song-blob)
-        album-node (nn/create conn {:album album})
-        artist-node (or (nn/get conn (get @uploaded-artists artist))
-                        (create-artist conn song-blob))]
+  [conn {album :album artist :url-artist
+         :or {album "No Album"} :as song-blob}]
+  (let [album-node (nn/create conn {:album album})
+        artist-node (get-artist-node conn song-blob)]
     (nl/add conn album-node "Album")
     (nrl/create conn album-node artist-node :by_artist)
     (dosync
       (alter uploaded-albums assoc (get-album-cache-name artist album)
-                                   (:id album-node)))
+                                   album-node))
       album-node))
+
+(defn get-album-node [conn {:keys [url-artist album] :as song}]
+  (let [album-name (get-album-cache-name url-artist album)]
+    (or (get @uploaded-albums album-name)
+        (create-album conn song))))
 
 (defn create-song
   "Create a Neo4j node representing a song"
@@ -64,23 +70,21 @@
 (defn create-token
   "Create a Neo4J node representing a token"
   [conn song prev idx token]
-  (if (seq token)
-    (let [token-node (nn/create conn {:token token :idx idx})
-          token-label (if (= "\n" token) ["Token" "Newline"]
-                                        "Token")]
-      (nl/add conn token-node token-label)
-      (nrl/create conn token-node song :in_song)
-      (if prev
-        (nrl/create conn prev token-node :next_word))
-      token-node)))
+  (let [token-node (nn/create conn {:token token :idx idx})
+        token-label (if (= "\n" token) ["Token" "Newline"]
+                                      "Token")]
+    (println token-node)
+    (nl/add conn token-node token-label)
+    (nrl/create conn token-node song :in_song)
+    (if prev
+      (nrl/create conn prev token-node :next_word))
+    token-node))
 
 (defn parse-song
   "Parse a song-blob and upload its components to Neo4j"
   [conn song-blob]
-  (let [artist-node (or (get @uploaded-artists (:url-artist song-blob))
-                        (create-artist conn song-blob))
-        album-node (or (get @uploaded-albums (:album song-blob))
-                       (create-album conn song-blob))
+  (let [artist-node (get-artist-node conn song-blob)
+        album-node (get-album-node conn song-blob)
         song (create-song conn artist-node album-node song-blob)
         tokens (:tokenized-lyrics song-blob)]
     (loop [prev nil
@@ -88,7 +92,8 @@
            token (first tokens)
            tail (rest tokens)]
       (if (some? token)
-          (recur (create-token conn song prev idx token)
-                  (inc idx)
-                  (first tail)
-                  (rest tail))))))
+        (recur
+          (create-token conn song prev idx token)
+          (inc idx)
+          (first tail)
+          (rest tail))))))
