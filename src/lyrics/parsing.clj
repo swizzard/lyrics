@@ -32,8 +32,9 @@
    :param blob: the blob to parse
    :type blob: map
    :returns: map"
-  [blob]
-  (if (seq (:url blob))
+  [{url :url load-line :load lyrics :lyrics :or {load-line "" lyrics ""}
+    :as blob}]
+  (if (seq url)
     (-> blob
-        (merge (parse-load (:load blob)))
-        (assoc :tokenized-lyrics (tokenize-lyrics (:lyrics blob))))))
+        (merge (parse-load load-line))
+        (assoc :tokenized-lyrics (tokenize-lyrics (get blob :lyrics ""))))))
