@@ -2,12 +2,15 @@
 
 Ultimately, a tokenized corpus of song lyrics. Currently, some tools to scrape
 [MetroLyrics](http://www.metrolyrics.com) and store the results with
-[MongoDB](http://www.mongodb.org/).
+[Neo4J](http://neo4j.com/).
 
 ## Usage
 
-Make sure you have a working internet connection and a locally-running MongoDB
-server. Then `lein run`.
+Make sure you have a working internet connection and an accessible Neo4J
+server. Authentication is handled using
+[environ](https://github.com/weavejester/environ) (which is a pretty great
+thing), so make sure you have a valid `neo4j-url` value set in your
+`profiles.clj`. Then `lein run`.
 
 ## License
 
