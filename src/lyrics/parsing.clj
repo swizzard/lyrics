@@ -1,21 +1,27 @@
 (ns lyrics.parsing
   (:require [clojure.string :refer [escape lower-case split]]))
 
-(def load-pat
-  "The pattern to parse the load"
-  (re-pattern (str "\n?\"([^\"]*)\" is track #(\\d+) on the album "
-                   "(.+?)\\.( It was written by (.+?)\\.)?\t?")))
-
 (defn parse-load
   "Parse the load section of a blob
    :param load-line: the line to parse
    :type load-line: String
    :returns: map"
   [^String load-line]
-  (if-let [parsed-load (re-matches load-pat load-line)]
-    ;; re-matches returns vec, 0th elem of which is full match
-    (zipmap [:title :track-number :album :written-by-line :written-by]
-            (map str (next parsed-load)))))
+  (let [load-pat
+        (re-pattern (str "[^\\w]*\"([^\"]*)\" is track #(\\d+) on the album "
+                         "(.+?)\\.( It was written by (.+?)\\.)?\t?"))]
+    (try
+      (if-let [parsed-load (re-matches load-pat load-line)]
+        ;; re-matches returns vec, 0th elem of which is full match
+        (zipmap [:title :track-number :album :written-by-line :written-by]
+                (map str (next parsed-load))))
+    (catch Exception e
+      (do
+        (println "caught exception "
+                 (.getMessage e)
+                 " processing "
+                 load-line)
+        {})))))
 
 (def header-line-pat
   "A pattern to parse a header-line"
@@ -34,7 +40,7 @@
    :returns: map"
   [{url :url load-line :load lyrics :lyrics :or {load-line "" lyrics ""}
     :as blob}]
-  (if (seq url)
+  (if (seq load-line)
     (-> blob
         (merge (parse-load load-line))
         (assoc :tokenized-lyrics (tokenize-lyrics (get blob :lyrics ""))))))

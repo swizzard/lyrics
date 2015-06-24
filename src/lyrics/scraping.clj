@@ -2,17 +2,9 @@
     (:require [net.cgrand.enlive-html :as enlive]
               [clj-http.client :as client]
               [clojure.string :as string]
-              [clojure.tools.reader.edn :as edn])
+              [lyrics.utils :refer [from-edn filter-contains]])
     (:import (java.lang.String)))
 
-
-(defn from-edn
-  "Read an edn file
-   :param edn-file: path to edn file to read
-   :type edn-file: string (filepath)
-   :returns: data"
-  [edn-file] (with-open [r (clojure.java.io/reader edn-file)]
-                            (edn/read (java.io.PushbackReader. r))))
 
 (def url-root
   "The root url"
@@ -94,6 +86,8 @@
   (distinct (map get-link (enlive/select resp [:td :a]))))
 
 (defn take-until-nils
+  "A transducer that takes non-nil values until a certain
+   number of nils have been seen"
   [max-nils]
     (fn [xf]
       (let [nils-count (atom 0)]
@@ -242,10 +236,12 @@
    (map extract-lyrics)))
 
 (def get-lyrics
+  "Main xf"
   (comp (collect-artists)
         (iterate-link)
         (get-resource)
         (mapcat #(get-links-from-res % [:ul.grid_3 :li :a]))
+        (filter-contains (from-edn "resources/processed.edn"))
         (parse-lyrics-url)
         (extract-lyrics)
         ))
