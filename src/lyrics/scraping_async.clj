@@ -1,5 +1,6 @@
 (ns lyrics.scraping-async
   (:require [clojure.core.async :as async]
+            [clojure.core.match :refer [match]]
             [clojure.string :as string]
             [clojure.tools.reader.edn :as edn]
             [com.stuartsierra.component :as component]
@@ -23,6 +24,10 @@
   "Root url for artists"
   (str url-root "/top-artists.html"))
 
+
+(defn- subs- [s x]
+  (subs s (- (count s) x)))
+
 (defn iterate-link
   "Alters a link by attaching an index to the end of it
    :param starting-link: the link to modify
@@ -30,10 +35,9 @@
    :param idx: the index to attach to the link
    :type idx: integer
    :returns: string"
-  [^String starting-link ^Integer idx]
-  (if (zero? idx) starting-link
-                (string/replace starting-link #"\.html$"
-                                              (str "-" idx ".html"))))
+  [starting-link idx]
+  {:pre [(> 1 idx)]}
+  (format "%s-%d.html" (subs starting-link 0 (- (count starting-link) 5)) idx))
 
 (defn get-letter-links [url]
   (let [selector (s/descendant (s/and (s/tag :p)
@@ -63,137 +67,90 @@
     (let [{{url :url} :opts body :body} @(http/get page)]
       (when (= url page)
         (map (fn [link] (async/put! output-chan (format-link link)))
-             extract-links body)
-        (recur (iterate-link page idx)
+             (extract-links body))
+        (recur (iterate-link link idx)
                (inc idx))))))
 
 (defn get-artist-links [letter-links-chan output-chan]
-  (async/go-loop [letter-link (async/<! letter-links-chan)]
+  (go-loop [letter-link (async/<! letter-links-chan)]
            (get-artist-letter output-chan letter-link)))
 
-(defrecord ArtistLinks [start-url output-chan state]
+(defrecord ArtistLinks [start-url output-chan running?]
   component/Lifecycle
   (start [component]
     (println "starting ArtistLinks")
-    (reset! state :running)
+    (swap! running? not)
     (let [letter-links (get-letter-links start-url)]
       (get-artist-links letter-links output-chan))
-    component)
+    component))
 
   (stop [component]
     (println "stopping ArtistLinks")
-    (reset! state :stopped)
-    (async/close! output-chan)
-    component))
+    (-> component
+        (update :output-chan close!)
+        (update :running? swap! not)))
 
 (defn make-artist-links
   ([start-url output-chan]
-    (->ArtistLinks start-url output-chan (atom :stopped)))
+    (->ArtistLinks start-url output-chan (atom false)))
   ([output-chan]
-   (make-artist-links artists-root output-chan)))
+   (make-artist-links artists-root output-chan (atom false))))
 
-(defrecord AlbumNode [title year genre artist title url])
+(defrecord AlbumNode [title year genre artist])
 (defrecord LyricsResponse [album year url res])
 
-(defn parse-album [album-node]
-  (let [defaults {:copyrightYear nil :genre nil :byArtist nil
-                  :title nil :url nil}]
-    (reduce merge
-           (map (fn [{{:keys [content itemprop]} :attrs}]
-                  {(keyword itemprop) content})
-                (s/select (s/tag :meta) album-node))
-            defaults)))
+(defn- meta->map [{{:keys [content itemprop]} :attrs}]
+  {(keyword itemprop) content})
 
-(defn get-raw-albums [start-page output-chan]
-  (loop [page start-page idx 2]
-    (let [{{url :url} :opts body :body} @(http/get page)]
-      (when (= url page)
-        (map #(async/>! output-chan %)
-             (->> body hickorize (s/select (s/class "album-track-list"))))
-        (recur (iterate-link artist-link idx)
-               (inc idx))))))
+(defn- get-meta-map [meta-attrs]
+  (transduce (map meta->map) reduce {} meta-attrs))
 
-(defn get-albums [{:keys [artist-links-chan output-chan state]}]
-  (loop [page (async/<! artist-links-chan)]
-    (when (some? page)
-      (async/go (get-raw-albums output-chan))
-      (recur (async/<! artist-links-chan)))))
+(defn parse-album [output-chan album-node]
+  (async/put! output-chan
+              (-> (s/select (s/tag :meta) album-node)
 
-(defrecord AlbumExtractor [artist-links-chan output-chan state]
+              (select-keys
+                (map (fn [{{:keys [content itemprop]} :attrs}]
+                      {(keyword itemprop) content})
+                    (s/select (s/tag :meta) album-node))
+                [:copyrightYear :byArtist :genre])))
+
+(defn- select-album-nodes [body]
+  (s/select (s/class "album-track-list") (hickorize body)))
+
+(defn get-album-nodes [start-page output-chan running?]
+  (when @running?
+    (loop [page start-page
+           idx 2
+           is-running? @running]
+      (let [{{url :url} :opts body :body} @(http/get page)]
+        (when (= url page)
+          (doseq [album-node (select-album-nodes body)]
+            (async/put! output-chan album-node))
+          (recur (iterate-link artist-link idx)
+                  (inc idx)))))))
+
+(defrecord AlbumNodeExtractor [pages-chan output-chan running?]
   component/Lifecycle
   (start [component]
-    (println "starting AlbumExtractor")
-    (reset! state :running)
-    (go (get-albums component))
+    (println "starting AlbumNodeExtractor")
+    (swap! running? not)
+    (go-loop [page (async/<! pages-chan)]
+      (when (some? page)
+        (get-album-nodes page output-chan running?)))
     component)
 
   (stop [component]
-    (println "stopping AlbumExtractor")
-    (reset! state :stopped)
-    (async/close! output-chan)
-    component))
+    (println "stopping AlbumNodeExtractor")
+    (-> component
+        (update :output-chan async/close!)
+        (update :running? swap! not)))
 
-(defn make-album-extractor [artist-links-chan output-chan]
-  (->AlbumExtractor artist-links-chan output-chan (atom :stopped)))
+(defn make-album-node-extractor [pages-chan output-chan]
+  (->AlbumNodeExtractor pages-chan output-chan (atom false)))
 
-(defrecord Album [title year genre artist song-links])
 
-(defmulti make-album #(-> % :content second :attrs :class some?))
-
-(defmethod make-album true [album]
-  (let [songs (s/select (s/child (s/tag :li) s/first-child) album)
-        artist (-> (s/select (s/child (s/class "grid_2")
-                                       s/first-child)
-                             album)
-                   first
-                   (get-in [:attrs :alt])
-                   (string/replace #" Singles$" ""))]
-    (->Album "Singles" nil nil artist songs)))
-
-(defn- get-meta [album]
-  (let [album-meta (s/select (s/tag :meta) album)]
-    (reduce merge (map (fn [{attrs :attrs}] {(keyword (:itemprop attrs))
-                                             (:content attrs)})
-                       album-meta))))
-
-(defmethod make-album false [album]
-  (let [{:keys [byArtist copyrightYear genre]} (get-meta album)
-        song-links (map #(get-in % [:attrs :href])
-                        (s/select (s/child (s/tag :li)
-                                           (s/tag :a))
-                                  album))
-        title (->> album (s/select (s/child (s/tag :h3) (s/tag :span)))
-                         first :content first)]
-    (->Album title copyrightYear genre byArtist song-links)))
-
-(defn get-albums [{:keys [raw-albums-chan output-chan]}]
-  (go-loop [raw-album (<! raw-albums-chan)]
-           (when (some? raw-album)
-             (>! output-chan (make-album raw-album))
-             (recur (<! raw-albums-chan)))))
-
-(defrecord AlbumParser [raw-albums-chan output-chan state]
-  component/Lifecycle
-  (start [component]
-    (println "starting AlbumParser")
-    (reset! state :running)
-    (get-albums component)
-    component)
-  (stop [component]
-    (println "stopping AlbumParser")
-    (reset! state :stopped)
-    (close! output-chan)
-    component))
-
-(defn make-album-parser [raw-albums-chan output-chan]
-  (->AlbumParser raw-albums-chan output-chan (atom :stopped)))
-
-(defrecord RetrievedAlbum [title year genre artist songs-chan])
-
-(defn get-songs [{song-links :song-links} output-chan]
-  k
-
-(defrecord SongLinks [album-chan output-chan state]
+(defrecord SongLinks [artist-links-chan output-chan num-workers state]
   component/Lifecycle
   (start [component]
     (println "starting SongLinks")
@@ -247,8 +204,3 @@
   (stop [component]
     (println "stopping LyricsExtractor")
     (async/close! output-chan)
-    (assoc component :state :stopped)))
-
-(defn make-lyrics-extractor [{pages-chan :output-chan} output-chan]
-  (LyricsExtractor. pages-chan output-chan (atom :stopped)))
-
