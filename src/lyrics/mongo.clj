@@ -6,7 +6,7 @@
 
 (def ^:private db
   "The database connection"
-  (mg/get-db (mg/connect) "lyrics"))
+  (mg/get-db (mg/connect "192.168.1.47") "lyrics"))
 
 (def ^:private coll
   "The MongoDB collection"

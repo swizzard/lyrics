@@ -1,5 +1,23 @@
 (ns lyrics.parsing
-  (:require [clojure.string :refer [split split-lines lower-case]]))
+  (:require [clojure.string :refer [capitalize split split-lines lower-case]]
+            [clojure.core.async :refer [<! <!! >! go thread] :as async]
+            [com.stuartsierra.component :as component]
+            [lyrics.scraping-async :refer [RawLyrics]]))
+
+
+(defrecord ParsedLyrics [url title track-number
+                         album written-by parsed-lyrics])
+
+
+(def url-pat
+  "Pattern to parse artist"
+ #"http://www\.metrolyrics\.com/([\w\d-]+?)(?:-)lyrics-([\w\d-]+)\.html")
+
+(defn parse-url [url]
+  (let [[_ _ raw-artist] (re-find url-pat url)]
+    (-> raw-artist
+        (split #"-")
+        capitalize)))
 
 (def load-pat
   "The pattern to parse the load"
@@ -42,12 +60,27 @@
                                        [idx parsed]))
                          (split-lines lyrics))))
 
-(defn parse-blob
-  "Parse a blob
-   :param blob: the blob to parse
-   :type blob: map
-   :returns: map"
-  [blob]
-  (-> blob
-      (merge (parse-load (:load blob)))
-      (assoc :parsed-lyrics (parse-lyrics (:lyrics blob)))))
+(defn parse-lyrics [^RawLyrics {:keys [url raw-load raw-lyrics]}]
+  (map->ParsedLyrics
+    (assoc (parse-load raw-load) :url url
+                                 :parsed-lyrics (parse-lyrics raw-lyrics)
+                                 :artist (parse-url url))))
+
+(defrecord LyricsParser [raw-lyrics-chan output-chan pipeline-size state]
+  component/Lifecycle
+  (start [component]
+    (println "starting LyricsParser")
+    (reset! state :running)
+    (async/pipeline pipeline-size
+                    output-chan
+                    (comp (map parse-lyrics) (filter some?))
+                    raw-lyrics-chan)
+    component)
+
+  (stop [component]
+    (println "stopping LyricsParser")
+    (reset! state :stopped)
+    (close! output-chan)
+    component))
+
+
