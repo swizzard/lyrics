@@ -25,20 +25,6 @@
   [edn-file] (with-open [r (clojure.java.io/reader edn-file)]
                             (edn/read (java.io.PushbackReader. r))))
 
-(def url-root
-  "The root url"
-  "http://www.metrolyrics.com")
-
-(defn get-resource
-  "Safely try to access a website and return its
-   body as an enlive snippet
-   :param url-string: the url to access
-   :type url-string: string (url)
-   :returns: enlive snippet or nil"
-  [url-string]
-    (try
-      (-> (client/get url-string) :body enlive/html-snippet)
-      (catch Exception e nil)))
 
 (defn- valid-link?
   "Validate a url by ensuring there are no errant '//'s in it
@@ -67,16 +53,6 @@
   [node]
   (get-in node [:attrs :href]))
 
-(defn get-links-from-res
-  "Extract all links from a snippet of a resource
-   :param resource: the resource to extract from
-   :type resource: Ring response map
-   :param selector: the selector to limit the extraction to
-   :type selector: Enlive selector
-   :returns: seq of strings"
-  [res selector]
-  (map get-link (enlive/select res selector)))
-
 (defn get-links
   "Extract all links from a snippet of a resource retrieved from a url
    :param url: the url to access
@@ -87,12 +63,11 @@
   [url selector]
   (get-links-from-res (get-resource url) selector))
 
-(def letter-links
-  "Starting links"
-  (map get-link (enlive/select (get-resource
-                                 (str url-root
-                                      "/top-artists.html"))
-                                 [:p.artist-letters :a])))
+(defn get-letter-links-cb
+  "Get starting links"
+  [{body :body}]
+  (
+  (map get-link (enlive/select body [:p.artist-letters :a])))
 
 (defn get-artists
   "Retrieve all artist links from a resource
@@ -116,18 +91,6 @@
                     (str root letter "-" idx ".html"))))
   ([letter] (assemble-link letter 0)))
 
-(defn iterate-link
-  "Alters a link by attaching an index to the end of it
-   :param starting-link: the link to modify
-   :type starting-link: string
-   :param idx: the index to attach to the link
-   :type idx: integer
-   :returns: string"
-  [starting-link idx]
-  {:pre [(integer? idx)]}
-  (if (zero? idx) starting-link
-                (string/replace starting-link #"\.html$"
-                                              (str "-" idx ".html"))))
 
 (defn- fix-artist-link
   "Fix an artist link to point to the albums list
