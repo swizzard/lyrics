@@ -2,7 +2,7 @@
   (:require [korma.core :refer :all]
             [lyrics.db :refer [conn]]))
 
-
+(declare word song album artist)
 (defentity word
   (database conn)
   (entity-fields :string :line_number :position))
