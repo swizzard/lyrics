@@ -1,0 +1,42 @@
+!_TAG_FILE_FORMAT	2	/extended format; --format=1 will not append ;" to lines/
+!_TAG_FILE_SORTED	1	/0=unsorted, 1=sorted, 2=foldcase/
+!_TAG_PROGRAM_AUTHOR	Darren Hiebert	/dhiebert@users.sourceforge.net/
+!_TAG_PROGRAM_NAME	Exuberant Ctags	//
+!_TAG_PROGRAM_URL	http://ctags.sourceforge.net	/official site/
+!_TAG_PROGRAM_VERSION	5.8	//
+-main	core.clj	/^(defn -main [] (lyrics-to-mongo))$/;"	f
+assemble-link	scraping.clj	/^(defn assemble-link $/;"	f
+collect-artists	scraping.clj	/^(defn collect-artists [letter] (let [first-page (assemble-link letter)$/;"	f
+extract-lyrics	scraping.clj	/^(defn extract-lyrics [lyrics-url]$/;"	f
+filter-redirected	scraping.clj	/^(defn filter-redirected [url]$/;"	f
+fix-artist-link	scraping.clj	/^(defn- fix-artist-link [artist-link] (string\/replace artist-link "-lyrics" "-albums-list"))$/;"	f
+from-edn	scraping.clj	/^(defn from-edn [edn-file] (with-open [r (clojure.java.io\/reader edn-file)]$/;"	f
+get-all-artists	scraping.clj	/^(defn get-all-artists [] (mapcat collect-artists ["1" "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m"$/;"	f
+get-all-lyrics	scraping.clj	/^(defn get-all-lyrics [artists] (map extract-lyrics$/;"	f
+get-artists	scraping.clj	/^(defn get-artists [res] (map get-link (enlive\/select res [:td :a])))$/;"	f
+get-link	scraping.clj	/^(defn get-link [node] (get-in node [:attrs :href]))$/;"	f
+get-links	scraping.clj	/^(defn get-links [url selector] (map get-link (enlive\/select (get-resource url)$/;"	f
+get-links-from-res	scraping.clj	/^(defn get-links-from-res [res selector] (map get-link (enlive\/select res selector)))$/;"	f
+get-lyrics	scraping.clj	/^(defn get-lyrics [start-page] (let [gl (fn [resp] (-> resp$/;"	f
+get-resource	scraping.clj	/^(defn get-resource [url-string]$/;"	f
+get-some-artists	scraping.clj	/^(defn get-some-artists [] (collect-artists "1"))$/;"	f
+header-line-pat	parsing.clj	/^(def header-line-pat #"(Album|Artist|Title): .*\\n")$/;"	d
+insert	mongo.clj	/^(defn insert [m] (mc\/insert db coll m))/;"	f
+iterate-link	scraping.clj	/^(defn iterate-link [starting-link idx] $/;"	f
+letter-links	scraping.clj	/^(def letter-links (map get-link$/;"	d
+load-pat	parsing.clj	/^(def load-pat #"\\n?\\"([^\\"]*)\\" is track #(\\d+) on the album (.+?)\\. It was written by (.+?)\\.\\t?")$/;"	d
+lyrics-from-page	scraping.clj	/^(defn lyrics-from-page [res] (get-links-from-res res [:ul.grid_3 :li :a]))$/;"	f
+lyrics-to-mongo	core.clj	/^(defn lyrics-to-mongo $/;"	f
+lyrics.core	core.clj	/^(ns lyrics.core$/;"	n
+lyrics.mongo	mongo.clj	/^(ns lyrics.mongo$/;"	n
+lyrics.parsing	parsing.clj	/^(ns lyrics.parsing$/;"	n
+lyrics.scraping	scraping.clj	/^(ns lyrics.scraping$/;"	n
+parse-blob	parsing.clj	/^(defn parse-blob [blob]$/;"	f
+parse-line	parsing.clj	/^(defn parse-line [^String line]$/;"	f
+parse-load	parsing.clj	/^(defn parse-load [load-line]$/;"	f
+parse-lyrics	parsing.clj	/^(defn parse-lyrics [^String lyrics]$/;"	f
+parse-lyrics-url	scraping.clj	/^(defn parse-lyrics-url [lyrics-url]$/;"	f
+rstrip	scraping.clj	/^(defn- rstrip [^String s c]$/;"	f
+strify	scraping.clj	/^(defn strify [ss] (apply str (interpose " " ss)))$/;"	f
+url-root	scraping.clj	/^(def url-root "http:\/\/www.metrolyrics.com")$/;"	d
+valid-link?	scraping.clj	/^(defn- valid-link? [^String link]$/;"	f

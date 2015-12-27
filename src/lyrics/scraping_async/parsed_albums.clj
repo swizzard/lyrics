@@ -5,9 +5,7 @@
             [org.httpkit.client :as http]
             [hickory.select :as s]
             [lyrics.scraping-async.utils :refer [coll->chan
-                                                 hickorize
-                                                 is-running?]]
-            ))
+                                                 hickorize]]))
 
 (defrecord Song [song-load lyrics])
 
@@ -92,26 +90,31 @@
 (defn parse-albums
   "Create ParsedAlbums from nodes taken from a chan and put them on another
    chan"
-  [{:keys [album-nodes-chan output-chan state]}]
-  (async/go-loop [album-node (async/<! album-nodes-chan)
-                  running? (is-running? state)]
-   (when (and (some? album-node) running?)
-     (async/put! output-chan
-                 (make-parsed-album (get-meta album-node)
-                                    (get-songs album-node)))
-     (recur (async/<! album-nodes-chan)
-            (is-running? state)))))
+  [{:keys [album-nodes-chan output-chan running?]}]
+  (async/go-loop [album-node (async/<! album-nodes-chan)]
+   (when (and (some? album-node) @running?)
+     (parse-album album-node output-chan)
+     (recur (async/<! album-nodes-chan)))))
 
-(defrecord AlbumParser [album-nodes-chan output-chan state]
+(defrecord AlbumParser [album-nodes-chan output-chan running?]
   component/Lifecycle
   (start [component]
-    (println "starting AlbumParser")
-    (swap! state not)
-    (parse-albums component)
+    (when-not @running?
+      (println "starting AlbumParser")
+      (swap! state not)
+      (parse-albums component))
     component)
 
   (stop [component]
-    (println "stopping AlbumParser")
-    (-> component
-        (update :state swap! not)
-        (update :output-chan async/close!))))
+    (when @running?
+      (println "stopping AlbumParser")
+      (-> component
+          (update :running? swap! not)
+          (update :output-chan async/close!)))))
+
+
+(defn new-album-parser [album-nodes-chan output-chan]
+  (map->AlbumParser {:album-nodes-chan album-nodes-chan
+                     :output-chan output-chan
+                     :running? (atom false)}))
+

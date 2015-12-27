@@ -5,7 +5,6 @@
             [hickory.select :as s]
             [org.httpkit.client :as http]
             [lyrics.scraping-async.utils :refer [hickorize
-                                                 is-running?
                                                  iterate-link]]))
 
 
@@ -17,6 +16,9 @@
   "Root url for artists"
   (str url-root "/top-artists.html"))
 
+(defn- put-nodes [out-chan nodes]
+  (doseq [node nodes]
+    (async/put! out-chan (get-in node [:attrs :href]))))
 
 (defn get-letter-links
   "Return a channel onto which have been put letter links"
@@ -24,14 +26,11 @@
   (let [selector (s/descendant (s/and (s/tag :p)
                                       (s/class "artist-letters"))
                                (s/tag :a))
-        out-chan (async/chan)
-        put-nodes (fn [nodes]
-                    (doseq [node nodes]
-                      (async/put! out-chan (get-in node [:attrs :href]))))]
+        out-chan (async/chan)]
     (->> @(http/get url) :body
                          hickorize
                          (s/select selector)
-                         put-nodes)
+                         (put-nodes out-chan))
     out-chan))
 
 
@@ -51,10 +50,10 @@
 
 (defn get-artist-letter
   "Put artist links onto a channel"
-  [output-chan starting-link state]
+  [output-chan starting-link running?]
   (loop [page starting-link
          idx 2]
-    (when (is-running? state)
+    (when @running? 
       (let [{{url :url} :opts body :body} @(http/get page)]
         (when (= url page)
           (doseq [link (extract-links body)] (async/put! output-chan
@@ -64,29 +63,32 @@
 
 (defn get-artist-links
   "Process letter links, putting the results onto a channel"
-  [letter-links-chan output-chan]
+  [letter-links-chan output-chan running?]
   (async/go-loop []
     (get-artist-letter output-chan (async/<! letter-links-chan))))
 
 (defrecord ArtistLinks [start-url output-chan running?]
   component/Lifecycle
   (start [component]
-    (println "starting ArtistLinks")
-    (swap! running? not)
-    (let [letter-links (get-letter-links start-url)]
-      (get-artist-links letter-links output-chan))
+    (when-not @running?
+      (println "starting ArtistLinks")
+      (swap! running? not)
+      (let [letter-links (get-letter-links start-url)]
+        (get-artist-links letter-links output-chan running?)))
     component)
 
   (stop [component]
-    (println "stopping ArtistLinks")
-    (-> component
-        (update :output-chan async/close!)
-        (update :running? swap! not))))
+    (when running?
+      (println "stopping ArtistLinks")
+      (-> component
+          (update :output-chan async/close!)
+          (update :running? swap! not)))))
 
 
-(defn make-artist-links
+(defn new-artist-links
   "Make an ArtistLinks component"
   ([start-url output-chan]
     (->ArtistLinks start-url output-chan (atom false)))
   ([output-chan]
-   (make-artist-links artists-root output-chan)))
+   (new-artist-links artists-root output-chan)))
+

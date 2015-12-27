@@ -40,40 +40,19 @@
   "A pattern to parse a header-line"
   #"(Album|Artist|Title): .*\n")
 
-(defn parse-line
-  "Parse a line of the lyrics section of a blob
-   :param lyrics-line: the line to parse
-   :type lyrics-line: String
-   :returns: map"
-  [^String lyrics-line]
-  (if (nil? (re-find header-line-pat lyrics-line))
-            (into {}
-                  (keep-indexed (fn [idx w] [idx w])
-                                (map lower-case (split lyrics-line #"\s"))))))
-
-(defn parse-lyrics
-  "Parse the lyrics component of a blob
-  :param lyrics: the lyrics to parse
-  :type lyrics: String
-  :returns: map"
-  [^String lyrics]
-  (into {} (keep-indexed (fn [idx l] (if-let [parsed (parse-line l)]
-                                       [idx parsed]))
-                         (split-lines lyrics))))
-
 (defn make-parsed-lyrics
   "Make a ParsedLyrics record"
   [{:keys [url raw-load raw-lyrics]}]
   (map->ParsedLyrics
     (assoc (parse-load raw-load) :url url
-                                 :parsed-lyrics (parse-lyrics raw-lyrics)
+                                 :lyrics raw-lyrics
                                  :artist (parse-url url))))
 
-(defrecord LyricsParser [raw-lyrics-chan output-chan pipeline-size state]
+(defrecord LyricsParser [raw-lyrics-chan output-chan pipeline-size running?]
   component/Lifecycle
   (start [component]
     (println "starting LyricsParser")
-    (swap! state not)
+    (swap! running? not)
     (async/pipeline pipeline-size
                     output-chan
                     (comp (map make-parsed-lyrics) (filter some?))
@@ -83,5 +62,15 @@
   (stop [component]
     (println "stopping LyricsParser")
     (-> component
-        (update :state swap! not)
+        (update :running? swap! not)
         (update :output-chan async/close!))))
+
+(defn new-lyrics-parser
+  ([raw-lyrics-chan output-chan pipeline-size]
+    (map->LyricsParser {:raw-lyrics-chan raw-lyrics-chan
+                        :output-chan output-chan
+                        :pipeline-size pipeline-size
+                        :running? (atom false)}))
+  ([raw-lyrics-chan output-chan]
+   (new-lyrics-parser raw-lyrics-chan output-chan 10)))
+

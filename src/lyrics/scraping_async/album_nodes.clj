@@ -5,7 +5,6 @@
             [hickory.select :as s]
             [lyrics.scraping-async.utils :refer [coll->chan
                                                  hickorize
-                                                 is-running?
                                                  iterate-link]]))
 
 
@@ -16,10 +15,10 @@
 
 (defn get-album-nodes
   "Put album nodes onto a channel"
-  [start-page output-chan state]
+  [start-page output-chan running?]
   (loop [page start-page
          idx 2]
-    (when (is-running? state)
+    (when @running?
       (let [{{url :url} :opts body :body} @(http/get page)]
         (when (= url page)
           (coll->chan (select-album-nodes body) output-chan)
@@ -29,21 +28,23 @@
 (defrecord AlbumNodeExtractor [pages-chan output-chan running?]
   component/Lifecycle
   (start [component]
-    (println "starting AlbumNodeExtractor")
-    (swap! running? not)
-    (async/go-loop []
-      (when-let [page (async/<! pages-chan)]
-        (get-album-nodes page output-chan running?)))
+    (when-not @running?
+      (println "starting AlbumNodeExtractor")
+      (swap! running? not)
+      (async/go-loop []
+        (when-let [page (async/<! pages-chan)]
+          (get-album-nodes page output-chan running?))))
     component)
 
   (stop
     [component]
-    (println "stopping AlbumNodeExtractor")
-    (-> component
-        (update :output-chan async/close!)
-        (update :running? swap! not))))
+    (when @running?
+      (println "stopping AlbumNodeExtractor")
+      (-> component
+          (update :output-chan async/close!)
+          (update :running? swap! not)))))
 
-(defn make-album-node-extractor
+(defn new-album-node-extractor
   "Create an AlbumNodeExtractor"
   [pages-chan output-chan]
   (->AlbumNodeExtractor pages-chan output-chan (atom false)))

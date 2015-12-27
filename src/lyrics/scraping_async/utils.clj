@@ -3,11 +3,6 @@
             [clojure.string :as string]
             [hickory.core :refer [parse as-hickory]]))
 
-(defn is-running?
-  "Helper function to determine if a component is running"
-  [state]
-  (= :running @state))
-
 (defn hickorize
   "Convert the body of a response into a hickory data structure"
   [body]
