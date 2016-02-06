@@ -3,6 +3,7 @@
             [clojure.string :as string]
             [com.stuartsierra.component :as component]
             [hickory.select :as s]
+            [hickory.core :refer [as-hickory]]
             [org.httpkit.client :as http]
             [lyrics.scraping-async.utils :refer [hickorize
                                                  iterate-link]]))
@@ -16,7 +17,7 @@
   "Root url for artists"
   (str url-root "/top-artists.html"))
 
-(defn- put-nodes [out-chan nodes]
+(defn put-nodes [out-chan nodes]
   (doseq [node nodes]
     (async/put! out-chan (get-in node [:attrs :href]))))
 
@@ -34,12 +35,12 @@
     out-chan))
 
 
-(defn- extract-links
+(defn extract-links
   "Extract links from a hickory body"
   [raw-body]
-  (-> raw-body
-      hickorize
-      (s/descendant (s/tag :td) (s/tag :a))))
+  (->> raw-body
+       hickorize
+       (s/select (s/descendant (s/tag :td) (s/tag :a)))))
 
 (defn format-link
   "Fix scraped links"
@@ -50,22 +51,24 @@
 
 (defn get-artist-letter
   "Put artist links onto a channel"
-  [output-chan starting-link running?]
+  [output-chan starting-link]
   (loop [page starting-link
          idx 2]
-    (when @running? 
-      (let [{{url :url} :opts body :body} @(http/get page)]
-        (when (= url page)
-          (doseq [link (extract-links body)] (async/put! output-chan
-                                                         (format-link link)))
-          (recur (iterate-link page idx)
-                (inc idx)))))))
+     (let [{{url :url} :opts body :body} @(http/get page)]
+        (if (and (= url page) (not (empty? body)))
+          (do
+            (doseq [link (extract-links body)] (async/put! output-chan
+                                                           (format-link link)))
+            (recur (iterate-link page idx)
+                    (inc idx)))))))
 
 (defn get-artist-links
   "Process letter links, putting the results onto a channel"
   [letter-links-chan output-chan running?]
   (async/go-loop []
-    (get-artist-letter output-chan (async/<! letter-links-chan))))
+    (get-artist-letter output-chan (async/<! letter-links-chan))
+    (if @running? (recur)
+                  (async/close! output-chan))))
 
 (defrecord ArtistLinks [start-url output-chan running?]
   component/Lifecycle

@@ -18,12 +18,12 @@
   [start-page output-chan running?]
   (loop [page start-page
          idx 2]
-    (when @running?
       (let [{{url :url} :opts body :body} @(http/get page)]
-        (when (= url page)
+        (when (and (= url page) (not (empty? body)))
           (coll->chan (select-album-nodes body) output-chan)
-          (recur (iterate-link page idx)
-                 (inc idx)))))))
+          (if @running?
+            (recur (iterate-link page idx)
+                   (inc idx)))))))
 
 (defrecord AlbumNodeExtractor [pages-chan output-chan running?]
   component/Lifecycle
@@ -32,8 +32,10 @@
       (println "starting AlbumNodeExtractor")
       (swap! running? not)
       (async/go-loop []
-        (when-let [page (async/<! pages-chan)]
-          (get-album-nodes page output-chan running?))))
+        (if-let [page (async/<! pages-chan)]
+          (do (get-album-nodes page output-chan running?)
+              (recur))
+          (async/close! output-chan))))
     component)
 
   (stop

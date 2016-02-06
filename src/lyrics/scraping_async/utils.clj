@@ -17,10 +17,11 @@
 (defn iterate-link
   "Alters a link by attaching an index to the end of it "
   [starting-link idx]
-  {:pre [(> 1 idx)]}
+  {:pre [(> idx 1)]}
   (format "%s-%d.html" (subs starting-link 0 (- (count starting-link) 5)) idx))
 
 (defn coll->chan
   "Put a collection's contents onto a chan"
   [coll chan]
-  (async/onto-chan chan coll (constantly true)))
+  (doseq [item coll] (async/put! chan item))
+  )

@@ -9,17 +9,17 @@
 
 (defrecord Song [song-load lyrics])
 
-(def ^:private song-cb-selector
+(def song-cb-selector
   "Selector for song callback"
   (s/descendant (s/class :lyrics)
                 (s/tag :p)))
 
-(def ^:private lyrics-selector
+(def lyrics-selector
   "Selector for lyrics"
   (s/descendant (s/class :lyrics-body)
                 (s/tag :p)))
 
-(def ^:private load-selector
+(def load-selector
   "Selector for load"
   (s/descendant (s/class :intro)
                 (s/class :load)))
@@ -44,7 +44,8 @@
                           first
                           :content
                           first
-                          trim)]
+                          (#(if (some? %) (trim %) %)))]
+
         (async/put! output-chan (->Song song-load lyrics))))))
 
 (defrecord ParsedAlbum [copyrightYear byArtist genre songs-chan])
@@ -52,22 +53,23 @@
 (defn make-parsed-album
   "Create a ParsedAlbum"
   [{:keys [copyrightYear byArtist genre numTracks]
-                          :or {numtracks 100}} songs]
+                          :or {numTracks 100}} songs]
   (let [num-tracks (Integer. numTracks)
         songs-chan (async/chan num-tracks)
         cb (song-cb-factory songs-chan)]
-    (doseq [song songs] (http/get song cb))
+    (doseq [song songs] (http/get (get-in song [:attrs :href]) cb))
+    (async/close! songs-chan)
     (->ParsedAlbum copyrightYear byArtist genre songs-chan)))
 
-(defn- get-meta
+(defn get-meta
   "Create a map from meta tags"
   [album-node]
   (let [meta-attrs (s/select (s/tag :meta) album-node)]
     (transduce (map (fn [{{:keys [content itemprop]} :attrs}]
                       {(keyword itemprop) content}))
-               reduce {} meta-attrs)))
+               merge {} meta-attrs)))
 
-(def ^:private song-selector
+(def song-selector
   "Selector for songs"
   (s/child (s/and (s/class :grid_6) (s/class :omega))
            (s/and (s/class :content) (s/class :song-list))
@@ -75,7 +77,7 @@
            (s/tag :li)
            (s/tag :a)))
 
-(defn- get-songs
+(defn get-songs
   "Extract songs from a hickory node"
   [album-node]
   (s/select song-selector album-node))
@@ -92,16 +94,18 @@
    chan"
   [{:keys [album-nodes-chan output-chan running?]}]
   (async/go-loop [album-node (async/<! album-nodes-chan)]
-   (when (and (some? album-node) @running?)
-     (parse-album album-node output-chan)
-     (recur (async/<! album-nodes-chan)))))
+   (if (and (some? album-node) @running?)
+     (do
+       (parse-album album-node output-chan)
+       (recur (async/<! album-nodes-chan)))
+     (async/close! output-chan))))
 
 (defrecord AlbumParser [album-nodes-chan output-chan running?]
   component/Lifecycle
   (start [component]
     (when-not @running?
       (println "starting AlbumParser")
-      (swap! state not)
+      (swap! running? not)
       (parse-albums component))
     component)
 

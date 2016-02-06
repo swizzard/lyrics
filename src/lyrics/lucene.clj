@@ -35,7 +35,7 @@
       (println "connecting to in-memory Lucene index")
       (swap! running? not)
       (assoc component :conn (clucy/memory-index))))
-  (stop [compnent]
+  (stop [component]
     (when @running?
       (println "disconnecting from Lucene")
       (swap! running? not)
@@ -44,6 +44,6 @@
 (defn new-clucy-mem []
   (map->ClucyMem {:conn nil :running? (atom false)}))
 
-(defn index-maps [component ms]
-  (apply (partial clucy/add index) ms)) 
+(defn index-maps [{:keys [conn]} ms]
+  (apply (partial clucy/add conn) ms)) 
 
