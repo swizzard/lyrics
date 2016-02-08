@@ -1,4 +1,4 @@
-(ns lyrics.scraping-async.parsed-albums
+(ns lyrics.scraping-async.song-parser
   (:require [clojure.core.async :as async]
             [clojure.string :as string]
             [com.stuartsierra.component :as component]
@@ -68,13 +68,14 @@
                  (get-featuring song)
                  (get-album-name song)
                  (get-lyrics song))]
+    (println song)
     (map->Song song)))
 
-(defn parse-songs [{:songs-chan songs-chan :copyrightYear copyright-year
-                    :byArtist artist :genre genre}
+(defn parse-songs [{songs-chan :songs-chan copyright-year :copyrightYear
+                    artist :byArtist genre :genre}
                    output-chan running? parser-fn]
-  (go-loop []
-    (when @running
+  (async/go-loop []
+    (when @running?
       (if-let [song (async/<!! songs-chan)]
        (do
          (async/put! output-chan (merge (parse-song song)
@@ -88,12 +89,14 @@
   (start [component]
     (when-not @running?
       (println "starting SongParser")
+      (swap! running? not)
       (async/go-loop []
         (if-let [parsed-album (async/<!! albums-chan)]
           (do
-            (parse-songs parsed-album output-chan running? :parser-fn parser-fn)
-            (recur []))
-          (async/close! output-chan)))))
+            (parse-songs parsed-album output-chan running? parser-fn)
+            (recur))
+          (async/close! output-chan))))
+    component)
   (stop [component]
     (when @running?
       (println "stopping SongParser")
@@ -102,9 +105,7 @@
          (update :output-chan async/close!)))))
 
 (defn new-song-parser
-  ([albums-chan output-chan & {:parser-fn parser-fn :or {parser-fn identity}}]
+  [albums-chan output-chan & {parser-fn :parser-fn :or {parser-fn identity}}]
    (map->SongParser {:albums-chan albums-chan :output-chan output-chan
                      :parser-fn parser-fn :running? (atom false)}))
-  ([albums-chan & {:parser-fn parser-fn :or {parser-fn identity}}]
-   (new-song-parser albums-chan (async/chan 10) :parser-fn parser-fn)))
 

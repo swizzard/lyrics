@@ -7,46 +7,6 @@
             [lyrics.scraping-async.utils :refer [coll->chan
                                                  hickorize]]))
 
-(defrecord Song [song-load lyrics])
-
-(def song-cb-selector
-  "Selector for song callback"
-  (s/descendant (s/class :lyrics)
-                (s/tag :p)))
-
-(def lyrics-selector
-  "Selector for lyrics"
-  (s/descendant (s/class :lyrics-body)
-                (s/tag :p)))
-
-(def load-selector
-  "Selector for load"
-  (s/descendant (s/class :intro)
-                (s/class :load)))
-
-(defn song-cb-factory
-  "Create a callback function bound to a channel"
-  [output-chan]
-  (fn [{:keys [body error]}]
-    (if-not error
-      (let [song (->> body
-                      hickorize
-                      (s/select song-cb-selector))
-            lyrics (->> song
-                        (s/select lyrics-selector)
-                        :content
-                        first
-                        (filter string?)
-                        (map trim)
-                        (apply str))
-            song-load (->> song
-                          (s/select load-selector)
-                          first
-                          :content
-                          first
-                          (#(if (some? %) (trim %) %)))]
-
-        (async/put! output-chan (->Song song-load lyrics))))))
 
 (defrecord ParsedAlbum [copyrightYear byArtist genre songs-chan])
 
@@ -56,7 +16,8 @@
                           :or {numTracks 100}} songs]
   (let [num-tracks (Integer. numTracks)
         songs-chan (async/chan num-tracks)
-        cb (song-cb-factory songs-chan)]
+        cb (fn [{:keys [body error]}]
+             (if-not error (async/put! songs-chan body)))]
     (doseq [song songs] (http/get (get-in song [:attrs :href]) cb))
     (async/close! songs-chan)
     (->ParsedAlbum copyrightYear byArtist genre songs-chan)))
