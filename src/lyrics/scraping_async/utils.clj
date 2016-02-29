@@ -19,9 +19,3 @@
   [starting-link idx]
   {:pre [(> idx 1)]}
   (format "%s-%d.html" (subs starting-link 0 (- (count starting-link) 5)) idx))
-
-(defn coll->chan
-  "Put a collection's contents onto a chan"
-  [coll chan]
-  (doseq [item coll] (async/put! chan item))
-  )

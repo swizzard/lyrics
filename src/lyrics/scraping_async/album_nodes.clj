@@ -3,12 +3,11 @@
             [com.stuartsierra.component :as component]
             [org.httpkit.client :as http]
             [hickory.select :as s]
-            [lyrics.scraping-async.utils :refer [coll->chan
-                                                 hickorize
+            [lyrics.scraping-async.utils :refer [hickorize
                                                  iterate-link]]))
 
 
-(defn- select-album-nodes
+(defn select-album-nodes
   "Get hickory nodes representing albums"
   [body]
   (s/select (s/class "album-track-list") (hickorize body)))
@@ -20,7 +19,7 @@
          idx 2]
       (let [{{url :url} :opts body :body} @(http/get page)]
         (when (and (= url page) (not (empty? body)))
-          (coll->chan (select-album-nodes body) output-chan)
+          (async/onto-chan output-chan (select-album-nodes body) false)
           (if @running?
             (recur (iterate-link page idx)
                    (inc idx)))))))

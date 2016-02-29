@@ -4,23 +4,31 @@
             [com.stuartsierra.component :as component]
             [org.httpkit.client :as http]
             [hickory.select :as s]
-            [lyrics.scraping-async.utils :refer [coll->chan
-                                                 hickorize]]))
+            [lyrics.scraping-async.utils :refer [hickorize]]))
 
 
-(defrecord ParsedAlbum [copyrightYear byArtist genre songs-chan])
+(defrecord ParsedAlbum [copyrightYear byArtist genre title songs-chan])
 
 (defn make-parsed-album
   "Create a ParsedAlbum"
-  [{:keys [copyrightYear byArtist genre numTracks]
-                          :or {numTracks 100}} songs]
+  [album-title
+   {:keys [copyrightYear byArtist genre numTracks]
+                          :or {numTracks 100}}
+   songs]
   (let [num-tracks (Integer. numTracks)
-        songs-chan (async/chan num-tracks)
-        cb (fn [{:keys [body error]}]
-             (if-not error (async/put! songs-chan body)))]
-    (doseq [song songs] (http/get (get-in song [:attrs :href]) cb))
-    (async/close! songs-chan)
-    (->ParsedAlbum copyrightYear byArtist genre songs-chan)))
+        songs-chan (async/chan num-tracks)]
+    (async/go-loop [s songs]
+      (if-let [song (first songs)]
+        (do
+          (as-> song %
+                (get-in % [:attrs :href])
+                (http/get %)
+                (deref %)
+                (:body %)
+                (async/put! songs-chan %))
+          (recur (rest songs)))
+        (async/close! songs-chan)))
+    (->ParsedAlbum copyrightYear byArtist genre album-title songs-chan)))
 
 (defn get-meta
   "Create a map from meta tags"
@@ -43,11 +51,22 @@
   [album-node]
   (s/select song-selector album-node))
 
+(defn get-title
+  "Get an album-node's title"
+  [album-node]
+  (-> (s/select (s/tag :h3) album-node)
+      first
+      :content
+      first 
+      :content
+      first))
+
 (defn parse-album
   "Create a ParsedAlbum and put it on a channel"
   [album-node output-chan]
   (async/put! output-chan
-              (make-parsed-album (get-meta album-node)
+              (make-parsed-album (get-title album-node)
+                                 (get-meta album-node)
                                  (get-songs album-node))))
 
 (defn parse-albums

@@ -4,8 +4,7 @@
             [com.stuartsierra.component :as component]
             [org.httpkit.client :as http]
             [hickory.select :as s]
-            [lyrics.scraping-async.utils :refer [coll->chan
-                                                 hickorize]]))
+            [lyrics.scraping-async.utils :refer [hickorize]]))
 
 
 (defrecord Lyrics [raw parsed])
@@ -33,56 +32,55 @@
 (defn get-title [out song]
   (let [title (as-> song %
                     (s/select (s/tag :h1) %)
+                    (first %)
                     (:content %)
                     (first %)
                     (prune-str % #" Lyrics$"))]
-  (assoc-in out :title title)))
+  (assoc out :title title)))
 
 (defn get-featuring [out song]
   (let [fartists (s/select (s/descendant (s/class :featuring)
-                                         (s/class :fartist)))]
-    (assoc out :featuring (map (comp first :content) fartists))))
+                                         (s/class :fartist)) song)]
+    (assoc out :featuring (map (comp :content first) fartists))))
 
 (defn get-album-name [out song]
   (let [album-name (s/select (s/descendant (s/class "album-name")
                                            (s/id "album-name-link"))
                              song)]
-    (assoc out :album-name (-> album-name :content first))))
+    (assoc out :album-title (-> album-name first :content first))))
 
 (defn- sel-lyrics [song] (s/select (s/descendant (s/id "lyrics-body")
                                    (s/tag :p)
                                    (s/not (s/tag :br)))
                          song))
 
-(defrecord Song [copyright-year artist genre album-name 
-                 album-title featuring title lyrics])
+(defrecord Song [copyright-year artist genre album-title
+                 featuring title lyrics raw])
 
 (defn get-lyrics
   ([out song parser-fn]
     (let [raw (sel-lyrics song)]
-      (map->Lyrics {:raw raw :parsed (parser-fn raw)}))))
+      (assoc out :lyrics (map->Lyrics {:raw raw :parsed (parser-fn raw)})))))
 
-(defn parse-song [song]
-  (let [song (-> {}
-                 (get-title song)
-                 (get-featuring song)
-                 (get-album-name song)
-                 (get-lyrics song))]
-    (println song)
-    (map->Song song)))
+(defn parse-song [song parser-fn]
+  (let [hs (hickorize song)
+        song-map (-> {:raw hs}
+                 (get-title hs)
+                 (get-featuring hs)
+                 (get-album-name hs)
+                 (get-lyrics hs parser-fn))]
+    (map->Song song-map)))
 
 (defn parse-songs [{songs-chan :songs-chan copyright-year :copyrightYear
                     artist :byArtist genre :genre}
                    output-chan running? parser-fn]
   (async/go-loop []
     (when @running?
-      (if-let [song (async/<!! songs-chan)]
-       (do
-         (async/put! output-chan (merge (parse-song song)
+      (when-let [song (async/<!! songs-chan)]
+         (async/put! output-chan (merge (parse-song song parser-fn)
                                         {:copyright-year copyright-year
                                          :genre genre :artist artist}))
-         (recur))
-       (async/close! output-chan)))))
+         (recur)))))
 
 (defrecord SongParser [albums-chan output-chan running? parser-fn]
   component/Lifecycle
@@ -91,17 +89,15 @@
       (println "starting SongParser")
       (swap! running? not)
       (async/go-loop []
-        (if-let [parsed-album (async/<!! albums-chan)]
-          (do
+        (when-let [parsed-album (async/<!! albums-chan)]
             (parse-songs parsed-album output-chan running? parser-fn)
-            (recur))
-          (async/close! output-chan))))
+            (recur))))
     component)
   (stop [component]
     (when @running?
       (println "stopping SongParser")
       (-> component
-         (update :running swap! not) 
+         (update :running? swap! not) 
          (update :output-chan async/close!)))))
 
 (defn new-song-parser

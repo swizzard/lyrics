@@ -17,10 +17,6 @@
   "Root url for artists"
   (str url-root "/top-artists.html"))
 
-(defn put-nodes [out-chan nodes]
-  (doseq [node nodes]
-    (async/put! out-chan (get-in node [:attrs :href]))))
-
 (defn get-letter-links
   "Return a channel onto which have been put letter links"
   [url]
@@ -31,9 +27,9 @@
     (->> @(http/get url) :body
                          hickorize
                          (s/select selector)
-                         (put-nodes out-chan))
+                         (map #(get-in % [:attrs :href]))
+                         (async/onto-chan out-chan))
     out-chan))
-
 
 (defn extract-links
   "Extract links from a hickory body"
@@ -55,20 +51,22 @@
   (loop [page starting-link
          idx 2]
      (let [{{url :url} :opts body :body} @(http/get page)]
-        (if (and (= url page) (not (empty? body)))
-          (do
-            (doseq [link (extract-links body)] (async/put! output-chan
-                                                           (format-link link)))
+        (when (and (= url page) (not (empty? body)))
+            (async/onto-chan output-chan (map format-link (extract-links body))
+                             false)
             (recur (iterate-link page idx)
-                    (inc idx)))))))
+                    (inc idx))))))
 
 (defn get-artist-links
   "Process letter links, putting the results onto a channel"
   [letter-links-chan output-chan running?]
-  (async/go-loop []
-    (get-artist-letter output-chan (async/<! letter-links-chan))
-    (if @running? (recur)
-                  (async/close! output-chan))))
+  (async/go-loop [letter-link (async/<! letter-links-chan)]
+    (if (and @running? (some? letter-link))
+      (do
+        (println letter-link)
+        (get-artist-letter output-chan letter-link)
+        (recur (async/<! letter-links-chan)))
+      (async/close! output-chan))))
 
 (defrecord ArtistLinks [start-url output-chan running?]
   component/Lifecycle
