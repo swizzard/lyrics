@@ -14,6 +14,7 @@
                  [hickory "0.5.4"]
                  [clucy "0.4.0"]
                  [slingshot "0.12.2"]
+                 [skyscraper "0.2.1"]
                  ]
   :jvm-opts ["-Xmx4g" "-server"]
   :main lyrics.core)
